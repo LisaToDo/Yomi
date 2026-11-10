@@ -547,8 +547,55 @@ const BOOK_JS = `
       guard++;
     }
   }
+  /* ---- 按真实容量重新分页 ----
+     原 PDF 一页塞 27 段歌词时，fitSection 只能把整页缩到 0.6 倍，字就成了芝麻。
+     正确做法是拆页：把全部段落按"这一页实际装不装得下"重新分配，
+     装不下就开新页，字号全程保持原始大小——等于按行数限制每页容量，但用实测代替估计。
+     只在打印准备阶段执行一次；屏幕显示随之变成真实页数（所见即所得）。 */
+  var repaginated=false;
+  function repaginate(){
+    if(repaginated)return;
+    repaginated=true;
+    var main=document.querySelector('main');
+    var secs=[].slice.call(document.querySelectorAll('section'));
+    if(!main||secs.length<1)return;
+    var all=[];
+    secs.forEach(function(s){[].push.apply(all,[].slice.call(s.querySelectorAll('.pair')));});
+    if(all.length<2)return;
+    var first=secs[0],box=first.querySelector('.pairs');
+    if(!box)return;
+    /* 空白页模板：保留页眉/水印/翻译条，去掉段落 */
+    var tpl=first.cloneNode(true);
+    [].slice.call(tpl.querySelectorAll('.pair')).forEach(function(p){p.remove();});
+    /* 清空第 1 页、删掉其余页，从头分配 */
+    [].slice.call(box.querySelectorAll('.pair')).forEach(function(p){p.remove();});
+    secs.slice(1).forEach(function(s){s.remove();});
+    setZoom(first,1);
+    /* id 用 r 前缀：重排后的页码与原 PDF 页码对不上，避免命中按旧页码存的翻译缓存 */
+    var pageNo=1;
+    first.id='r1';
+    var hd=first.querySelector('.hd-page');if(hd)hd.textContent='第 1 页';
+    var curBox=box;
+    function nextPage(){
+      pageNo++;
+      var s=tpl.cloneNode(true);
+      s.id='r'+pageNo;
+      var h=s.querySelector('.hd-page');if(h)h.textContent='第 '+pageNo+' 页';
+      main.appendChild(s);
+      return s;
+    }
+    for(var i=0;i<all.length;i++){
+      curBox.appendChild(all[i]);
+      if(curBox.scrollHeight>curBox.clientHeight+1){
+        curBox.removeChild(all[i]);
+        curBox=nextPage().querySelector('.pairs');
+        curBox.appendChild(all[i]);
+      }
+    }
+  }
   function preparePrint(){
     document.body.classList.add('print-preview');
+    repaginate();                     /* 先按容量分页，再做裁切线与兜底缩放 */
     document.querySelectorAll('section').forEach(function(sec){
       if(!sec.querySelector('.cropmark')){
         MARKS.forEach(function(m){
